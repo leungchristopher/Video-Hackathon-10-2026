@@ -1,4 +1,4 @@
-"""W&B request/response contract is a placeholder to update when the real API is known."""
+"""W&B Inference adapter (OpenAI-compatible chat completions)."""
 
 from pydantic import BaseModel
 
