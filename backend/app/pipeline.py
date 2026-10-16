@@ -1,16 +1,36 @@
 import asyncio
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
+from typing import TypeVar
 
-from .cache import AnalysisCache
-from .models import EvidenceCard, Interval, JobRequest, JobResult, LlmReply, SearchHit
-from .prompts import ANSWER_SYSTEM, CLIP_PROMPT, CLIP_PROMPT_VERSION, answer_prompt
+from .cache import ResultCache
+from .models import (
+    Clip,
+    ClipAnalysis,
+    ClipDetections,
+    EvidenceCard,
+    Interval,
+    JobRequest,
+    JobResult,
+    LlmReply,
+    SearchHit,
+)
+from .prompts import (
+    ANSWER_SYSTEM,
+    CLIP_PROMPT,
+    CLIP_PROMPT_VERSION,
+    DETECTION_CONFIG_VERSION,
+    answer_prompt,
+)
 from .services import Services
+
+T = TypeVar("T", ClipAnalysis, ClipDetections)
 
 
 class Pipeline:
-    """Question -> video search -> clip retrieval -> clip analysis (cached) -> answer."""
+    """Question -> VSS search -> VSS clip retrieval ->
+    YOLO detection + Cosmos analysis (cached) -> W&B answer."""
 
-    def __init__(self, services: Services, cache: AnalysisCache) -> None:
+    def __init__(self, services: Services, cache: ResultCache) -> None:
         self.services = services
         self.cache = cache
 
@@ -25,12 +45,25 @@ class Pipeline:
             )
             return JobResult(answer=reply, evidence=[])
 
-        set_stage(f"retrieving and analysing {len(hits)} clips")
+        set_stage(f"retrieving {len(hits)} clips; detecting objects and analysing clips")
         evidence = list(await asyncio.gather(*(self._evidence(hit) for hit in hits)))
 
         set_stage("answering")
         prompt = answer_prompt(
-            request.question, [(e.start_s, e.end_s, e.analysis.text) for e in evidence]
+            request.question,
+            [
+                (
+                    e.start_s,
+                    e.end_s,
+                    e.analysis.text,
+                    ", ".join(
+                        f"{d.label} ({d.confidence:.2f} @ {d.time_s:.1f}s)"
+                        for d in e.detections.detections
+                    )
+                    or "none",
+                )
+                for e in evidence
+            ],
         )
         answer = await self.services.llm.complete(ANSWER_SYSTEM, prompt)
         return JobResult(answer=answer, evidence=evidence)
@@ -38,12 +71,24 @@ class Pipeline:
     async def _evidence(self, hit: SearchHit) -> EvidenceCard:
         interval = Interval(video_id=hit.video_id, start_s=hit.start_s, end_s=hit.end_s)
         clip = await self.services.clips.get_clip(interval)
-        analyzer = self.services.analyzer
-        key = (hit.video_id, hit.start_s, hit.end_s, analyzer.model, CLIP_PROMPT_VERSION)
-        analysis = self.cache.get(*key)
-        if analysis is None:
-            analysis = await analyzer.analyze(clip, CLIP_PROMPT, CLIP_PROMPT_VERSION)
-            self.cache.put(analysis)
+        detections, analysis = await asyncio.gather(
+            self._cached_result(
+                "detections",
+                ClipDetections,
+                clip,
+                self.services.detector.model,
+                DETECTION_CONFIG_VERSION,
+                lambda: self.services.detector.detect(clip, DETECTION_CONFIG_VERSION),
+            ),
+            self._cached_result(
+                "clip_analysis",
+                ClipAnalysis,
+                clip,
+                self.services.analyzer.model,
+                CLIP_PROMPT_VERSION,
+                lambda: self.services.analyzer.analyze(clip, CLIP_PROMPT, CLIP_PROMPT_VERSION),
+            ),
+        )
         return EvidenceCard(
             **interval.model_dump(),
             score=hit.score,
@@ -52,4 +97,28 @@ class Pipeline:
             clip_url=clip.url,
             clip_source=clip.source,
             analysis=analysis,
+            detections=detections,
         )
+
+    async def _cached_result(
+        self,
+        kind: str,
+        result_type: type[T],
+        clip: Clip,
+        model: str,
+        prompt_version: str,
+        fetch: Callable[[], Awaitable[T]],
+    ) -> T:
+        item = self.cache.get(
+            kind,
+            result_type,
+            clip.video_id,
+            clip.start_s,
+            clip.end_s,
+            model,
+            prompt_version,
+        )
+        if item is None:
+            item = await fetch()
+            self.cache.put(kind, item)
+        return item

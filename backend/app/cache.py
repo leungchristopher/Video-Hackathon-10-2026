@@ -1,11 +1,13 @@
 import sqlite3
 import threading
 from pathlib import Path
+from typing import TypeVar
 
-from .models import ClipAnalysis
+from .models import ClipAnalysis, ClipDetections
 
 SCHEMA = """
-CREATE TABLE IF NOT EXISTS clip_analysis (
+CREATE TABLE IF NOT EXISTS results (
+    kind TEXT NOT NULL,
     video_id TEXT NOT NULL,
     start_s REAL NOT NULL,
     end_s REAL NOT NULL,
@@ -13,13 +15,15 @@ CREATE TABLE IF NOT EXISTS clip_analysis (
     prompt_version TEXT NOT NULL,
     result TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (video_id, start_s, end_s, model, prompt_version)
+    PRIMARY KEY (kind, video_id, start_s, end_s, model, prompt_version)
 )
 """
 
+T = TypeVar("T", ClipAnalysis, ClipDetections)
 
-class AnalysisCache:
-    """Clip analysis results keyed by video, interval, model and prompt version."""
+
+class ResultCache:
+    """Results keyed by video, interval, model and prompt/config version."""
 
     def __init__(self, path: str) -> None:
         if path != ":memory:":
@@ -34,30 +38,41 @@ class AnalysisCache:
         return (video_id, round(start_s, 3), round(end_s, 3), model, prompt_version)
 
     def get(
-        self, video_id: str, start_s: float, end_s: float, model: str, prompt_version: str
-    ) -> ClipAnalysis | None:
+        self,
+        kind: str,
+        cls: type[T],
+        video_id: str,
+        start_s: float,
+        end_s: float,
+        model: str,
+        prompt_version: str,
+    ) -> T | None:
         with self._lock:
             row = self._db.execute(
-                "SELECT result FROM clip_analysis WHERE video_id=? AND start_s=? AND end_s=?"
+                "SELECT result FROM results WHERE kind=? AND video_id=? AND start_s=? AND end_s=?"
                 " AND model=? AND prompt_version=?",
-                self._key(video_id, start_s, end_s, model, prompt_version),
+                (kind, *self._key(video_id, start_s, end_s, model, prompt_version)),
             ).fetchone()
         if row is None:
             return None
-        return ClipAnalysis.model_validate_json(row[0]).model_copy(update={"cached": True})
+        return cls.model_validate_json(row[0]).model_copy(update={"cached": True})
 
-    def put(self, analysis: ClipAnalysis) -> None:
+    def put(self, kind: str, item: ClipAnalysis | ClipDetections) -> None:
         key = self._key(
-            analysis.video_id,
-            analysis.start_s,
-            analysis.end_s,
-            analysis.model,
-            analysis.prompt_version,
+            item.video_id,
+            item.start_s,
+            item.end_s,
+            item.model,
+            item.prompt_version,
         )
         with self._lock, self._db:
             self._db.execute(
-                "INSERT OR REPLACE INTO clip_analysis"
-                " (video_id, start_s, end_s, model, prompt_version, result)"
-                " VALUES (?, ?, ?, ?, ?, ?)",
-                (*key, analysis.model_copy(update={"cached": False}).model_dump_json()),
+                "INSERT OR REPLACE INTO results"
+                " (kind, video_id, start_s, end_s, model, prompt_version, result)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    kind,
+                    *key,
+                    item.model_copy(update={"cached": False}).model_dump_json(),
+                ),
             )

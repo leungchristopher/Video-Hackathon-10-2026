@@ -17,6 +17,12 @@ class Settings(BaseSettings):
     vss_search_path: str = "/search"
     vss_clip_path: str = "/clips"
 
+    # YOLO: object detection. Empty base URL -> test responses.
+    yolo_base_url: str = ""
+    yolo_api_key: str = ""
+    yolo_detect_path: str = "/detect"
+    yolo_model: str = "yolo"
+
     # Cosmos: clip analysis. Empty base URL -> test responses.
     cosmos_base_url: str = ""
     cosmos_api_key: str = ""

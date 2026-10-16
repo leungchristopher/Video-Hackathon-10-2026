@@ -20,6 +20,21 @@ export interface ClipAnalysis {
   cached: boolean;
 }
 
+export interface Detection {
+  label: string;
+  confidence: number;
+  time_s: number;
+  box: [number, number, number, number];
+}
+
+export interface ClipDetections {
+  detections: Detection[];
+  model: string;
+  prompt_version: string;
+  source: Source;
+  cached: boolean;
+}
+
 /** Timestamps are seconds from the start of the source video. */
 export interface EvidenceCard {
   video_id: string;
@@ -31,6 +46,7 @@ export interface EvidenceCard {
   clip_url: string | null;
   clip_source: Source;
   analysis: ClipAnalysis;
+  detections: ClipDetections;
 }
 
 export interface JobError {

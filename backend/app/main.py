@@ -4,7 +4,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 
-from .cache import AnalysisCache
+from .cache import ResultCache
 from .config import Settings
 from .jobs import JobManager
 from .models import Health, Job, JobRequest, Video
@@ -25,7 +25,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        pipeline = Pipeline(services, AnalysisCache(settings.cache_path))
+        pipeline = Pipeline(services, ResultCache(settings.cache_path))
         app.state.jobs = JobManager(
             pipeline.run, settings.max_concurrent_jobs, settings.job_timeout_s
         )

@@ -5,6 +5,9 @@ CLIP_PROMPT = (
     "Be factual and concise."
 )
 
+# Bump this version when the detection configuration changes: it is part of the cache key.
+DETECTION_CONFIG_VERSION = "detect-v1"
+
 ANSWER_PROMPT_VERSION = "answer-v1"
 ANSWER_SYSTEM = (
     "You answer questions about a video using only the evidence provided. "
@@ -13,6 +16,9 @@ ANSWER_SYSTEM = (
 )
 
 
-def answer_prompt(question: str, evidence: list[tuple[float, float, str]]) -> str:
-    lines = [f"[{start:.1f}s-{end:.1f}s] {text}" for start, end, text in evidence]
+def answer_prompt(question: str, evidence: list[tuple[float, float, str, str]]) -> str:
+    lines = [
+        f"[{start:.1f}s-{end:.1f}s] {text} Objects: {objects}"
+        for start, end, text, objects in evidence
+    ]
     return f"Question: {question}\n\nEvidence:\n" + "\n".join(lines)

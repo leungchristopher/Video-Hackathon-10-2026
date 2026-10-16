@@ -27,6 +27,13 @@ def run_job(client: TestClient, question: str = "who walks into the frame?") -> 
 def test_complete_flow_with_test_responses(tmp_path):
     with make_client(tmp_path) as client:
         modes = {s["interface"]: s["mode"] for s in client.get("/api/health").json()["services"]}
+        assert set(modes) == {
+            "video_search",
+            "clip_retrieval",
+            "object_detection",
+            "clip_analysis",
+            "language_model",
+        }
         assert set(modes.values()) == {"test"}
 
         job = run_job(client)
@@ -39,9 +46,17 @@ def test_complete_flow_with_test_responses(tmp_path):
         assert evidence[0]["start_s"] == 12.0 and evidence[0]["end_s"] == 18.5
         assert all(card["analysis"]["source"] == "test" for card in evidence)
         assert not any(card["analysis"]["cached"] for card in evidence)
+        assert all(card["detections"]["source"] == "test" for card in evidence)
+        assert all(card["detections"]["detections"] for card in evidence)
+        assert all(
+            card["start_s"] <= detection["time_s"] <= card["end_s"]
+            for card in evidence
+            for detection in card["detections"]["detections"]
+        )
 
         again = run_job(client)
         assert all(card["analysis"]["cached"] for card in again["result"]["evidence"])
+        assert all(card["detections"]["cached"] for card in again["result"]["evidence"])
 
 
 def test_unreachable_service_fails_job_with_clear_error(tmp_path):
@@ -49,6 +64,15 @@ def test_unreachable_service_fails_job_with_clear_error(tmp_path):
         job = run_job(client)
         assert job["status"] == "failed"
         assert job["error"]["service"] == "Cosmos clip analysis"
+        assert job["error"]["kind"] == "unavailable"
+        assert "127.0.0.1:9" in job["error"]["message"]
+
+
+def test_yolo_failure(tmp_path):
+    with make_client(tmp_path, yolo_base_url="http://127.0.0.1:9") as client:
+        job = run_job(client)
+        assert job["status"] == "failed"
+        assert job["error"]["service"] == "YOLO object detection"
         assert job["error"]["kind"] == "unavailable"
         assert "127.0.0.1:9" in job["error"]["message"]
 

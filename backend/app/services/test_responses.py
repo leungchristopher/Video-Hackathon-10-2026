@@ -3,7 +3,7 @@
 import asyncio
 import re
 
-from ..models import Clip, ClipAnalysis, Interval, LlmReply, SearchHit
+from ..models import Clip, ClipAnalysis, ClipDetections, Detection, Interval, LlmReply, SearchHit
 
 LABEL = "[TEST RESPONSE]"
 
@@ -78,6 +78,42 @@ class TestClipAnalyzer:
             text=text,
             model=self.model,
             prompt_version=prompt_version,
+            source="test",
+        )
+
+
+class TestObjectDetector:
+    name = "Test object detection"
+    source = "test"
+    model = "test-object-detector"
+    labels = ("person", "car", "dog", "bicycle")
+
+    def __init__(self, delay_s: float) -> None:
+        self._delay = delay_s
+
+    async def detect(self, clip: Clip, config_version: str) -> ClipDetections:
+        await asyncio.sleep(self._delay)
+        index = int(clip.start_s) % len(self.labels)
+        midpoint = (clip.start_s + clip.end_s) / 2
+        detections = [
+            Detection(
+                label=self.labels[index],
+                confidence=0.91,
+                time_s=clip.start_s + 1.0,
+                box=(0.1, 0.2, 0.4, 0.8),
+            ),
+            Detection(
+                label=self.labels[(index + 1) % len(self.labels)],
+                confidence=0.78,
+                time_s=midpoint,
+                box=(0.55, 0.1, 0.9, 0.95),
+            ),
+        ]
+        return ClipDetections(
+            **Interval.model_validate(clip.model_dump()).model_dump(),
+            detections=detections,
+            model=self.model,
+            prompt_version=config_version,
             source="test",
         )
 

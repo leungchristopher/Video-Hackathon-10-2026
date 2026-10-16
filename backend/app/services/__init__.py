@@ -2,17 +2,25 @@ from dataclasses import dataclass
 
 from ..config import Settings
 from ..models import ServiceInfo
-from .base import ClipAnalyzer, ClipRetriever, LanguageModel, VideoSearch
+from .base import ClipAnalyzer, ClipRetriever, LanguageModel, ObjectDetector, VideoSearch
 from .cosmos import CosmosClipAnalyzer
-from .test_responses import TestClipAnalyzer, TestClipRetriever, TestLanguageModel, TestVideoSearch
+from .test_responses import (
+    TestClipAnalyzer,
+    TestClipRetriever,
+    TestLanguageModel,
+    TestObjectDetector,
+    TestVideoSearch,
+)
 from .vss import VssClipRetriever, VssVideoSearch
 from .wandb import WandbLanguageModel
+from .yolo import YoloObjectDetector
 
 
 @dataclass
 class Services:
     search: VideoSearch
     clips: ClipRetriever
+    detector: ObjectDetector
     analyzer: ClipAnalyzer
     llm: LanguageModel
 
@@ -23,6 +31,11 @@ class Services:
             ),
             ServiceInfo(
                 interface="clip_retrieval", provider=self.clips.name, mode=self.clips.source
+            ),
+            ServiceInfo(
+                interface="object_detection",
+                provider=self.detector.name,
+                mode=self.detector.source,
             ),
             ServiceInfo(
                 interface="clip_analysis", provider=self.analyzer.name, mode=self.analyzer.source
@@ -38,6 +51,9 @@ def build_services(settings: Settings, media_url: str) -> Services:
     return Services(
         search=VssVideoSearch(settings) if vss else TestVideoSearch(delay),
         clips=VssClipRetriever(settings) if vss else TestClipRetriever(media_url, delay),
+        detector=(
+            YoloObjectDetector(settings) if settings.yolo_base_url else TestObjectDetector(delay)
+        ),
         analyzer=(
             CosmosClipAnalyzer(settings) if settings.cosmos_base_url else TestClipAnalyzer(delay)
         ),

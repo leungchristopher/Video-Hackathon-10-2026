@@ -1,6 +1,14 @@
 from typing import Protocol
 
-from ..models import Clip, ClipAnalysis, Interval, LlmReply, SearchHit, Source
+from ..models import (
+    Clip,
+    ClipAnalysis,
+    ClipDetections,
+    Interval,
+    LlmReply,
+    SearchHit,
+    Source,
+)
 
 
 class ServiceError(Exception):
@@ -33,6 +41,14 @@ class ClipAnalyzer(Protocol):
     model: str
 
     async def analyze(self, clip: Clip, prompt: str, prompt_version: str) -> ClipAnalysis: ...
+
+
+class ObjectDetector(Protocol):
+    name: str
+    source: Source
+    model: str
+
+    async def detect(self, clip: Clip, config_version: str) -> ClipDetections: ...
 
 
 class LanguageModel(Protocol):

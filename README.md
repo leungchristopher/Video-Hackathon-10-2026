@@ -7,7 +7,8 @@ answer. Evidence cards show each moment; click a timestamp to move playback ther
 - Frontend: React, Vite, TypeScript (`frontend/`)
 - Backend: Python, FastAPI, Pydantic (`backend/`)
 - External services (called over HTTP, nothing is installed locally):
-  VAST/VSS (video search, clip retrieval), Cosmos (clip analysis), W&B Inference (language model)
+  VAST/VSS (video search, clip retrieval), YOLO (object detection), Cosmos (clip analysis),
+  W&B Inference (language model)
 
 The app runs without credentials. Any unconfigured service returns canned **test responses**,
 marked `source: "test"` in the API and with a yellow `TEST RESPONSE` badge and banner in the UI.
@@ -28,6 +29,7 @@ make check   # ruff, pytest (full flow + service failure + timeout), tsc + vite 
 POST /api/jobs {video_id, question}
   -> video search (VAST/VSS)          hits with start_s/end_s
   -> clip retrieval (VAST/VSS)        per hit
+  -> object detection (YOLO)          per clip, cached in SQLite
   -> clip analysis (Cosmos)           per clip, cached in SQLite
   -> language model (W&B Inference)   answer citing [12.0s]-style timestamps
 GET /api/jobs/{id}                    status: queued | running | succeeded | failed
@@ -38,8 +40,9 @@ GET /api/jobs/{id}                    status: queued | running | succeeded | fai
   Each job is limited to `JOB_TIMEOUT_S`, each service call to `SERVICE_TIMEOUT_S`.
 - A failed job reports `error: {service, kind, message}` where `kind` is one of
   `timeout`, `unavailable`, `http_error`, `bad_response`, `internal`.
-- Clip analyses are cached in SQLite (`CACHE_PATH`) by video, interval, model and prompt
-  version. Change `CLIP_PROMPT_VERSION` in `backend/app/prompts.py` when editing the prompt.
+- Clip analyses and detections are cached in SQLite (`CACHE_PATH`) by video, interval, model
+  and prompt/config version. Change `CLIP_PROMPT_VERSION` in `backend/app/prompts.py` when
+  editing the analysis prompt; `DETECTION_CONFIG_VERSION` is also part of the cache key.
 - Other endpoints: `GET /api/health` (which services are live or test), `GET /api/videos`.
 
 Interfaces are in `backend/app/services/base.py`; test responses in
@@ -50,15 +53,17 @@ Interfaces are in `backend/app/services/base.py`; test responses in
 Credentials stay in `.env` on the backend (ignored by Git) and are never sent to the browser.
 Restart `make dev` after editing `.env`; `GET /api/health` shows which services are live.
 
-The event API formats are not known, so the VAST/VSS and Cosmos adapters use a placeholder
+The event API formats are not known, so the VAST/VSS, YOLO and Cosmos adapters use a placeholder
 contract defined in one file each. When the real API is documented, edit the request payload and
 the `*Response` models in that file and convert any timestamps to source-video seconds there.
-A response that does not match fails the job with a `bad_response` error naming the file.
+A response that does not match fails the job with a `bad_response` error naming the file. YOLO
+boxes are normalized `x1, y1, x2, y2` coordinates from 0 to 1.
 
 | Service | Enable with | Adapter | Placeholder contract |
 |---|---|---|---|
 | VAST/VSS search | `VSS_BASE_URL`, `VSS_API_KEY` | `backend/app/services/vss.py` | `POST {VSS_SEARCH_PATH}` `{video_id, query, top_k}` → `{results: [{start_s, end_s, score, text}]}` |
 | VAST/VSS clips | same | same | `POST {VSS_CLIP_PATH}` `{video_id, start_s, end_s}` → `{url}` |
+| YOLO | `YOLO_BASE_URL`, `YOLO_API_KEY`, `YOLO_MODEL` | `backend/app/services/yolo.py` | `POST {YOLO_DETECT_PATH}` `{model, video_id, clip_url, start_s, end_s}` → `{detections: [{label, confidence, time_s, box}]}` |
 | Cosmos | `COSMOS_BASE_URL`, `COSMOS_API_KEY`, `COSMOS_MODEL` | `backend/app/services/cosmos.py` | `POST {COSMOS_ANALYZE_PATH}` `{model, prompt, video_id, clip_url, start_s, end_s}` → `{text}` |
 | W&B Inference | `WANDB_API_KEY`, `WANDB_PROJECT`, `WANDB_MODEL` | `backend/app/services/wandb.py` | OpenAI-compatible `POST {WANDB_BASE_URL}/chat/completions` |
 
