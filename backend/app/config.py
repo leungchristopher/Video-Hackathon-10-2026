@@ -1,0 +1,38 @@
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    """All configuration comes from the environment or `.env` in the repository root."""
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    video_id: str = "demo"
+    video_title: str = "Demo video (Big Buck Bunny, CC-BY Blender Foundation)"
+    # An http(s) URL, or a local file path served by the backend.
+    video_url: str = (
+        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
+    )
+
+    # VAST/VSS: video search and clip retrieval. Empty base URL -> test responses.
+    vss_base_url: str = ""
+    vss_api_key: str = ""
+    vss_search_path: str = "/search"
+    vss_clip_path: str = "/clips"
+
+    # Cosmos: clip analysis. Empty base URL -> test responses.
+    cosmos_base_url: str = ""
+    cosmos_api_key: str = ""
+    cosmos_analyze_path: str = "/analyze"
+    cosmos_model: str = "cosmos-reason"
+
+    # W&B Inference (OpenAI-compatible): language model calls. Empty API key -> test responses.
+    wandb_api_key: str = ""
+    wandb_base_url: str = "https://api.inference.wandb.ai/v1"
+    wandb_project: str = ""
+    wandb_model: str = "meta-llama/Llama-3.1-8B-Instruct"
+
+    max_concurrent_jobs: int = 2
+    job_timeout_s: float = 120.0
+    service_timeout_s: float = 30.0
+    test_response_delay_s: float = 0.4
+    cache_path: str = "data/cache.sqlite3"
