@@ -1,11 +1,11 @@
-"""W&B Inference adapter for language model calls (OpenAI-compatible chat completions)."""
+"""W&B request/response contract is a placeholder to update when the real API is known."""
 
 from pydantic import BaseModel
 
 from ..config import Settings
 from ..models import LlmReply
 from .base import ServiceError
-from .http import bearer, parse, post_json
+from .http import post
 
 NAME = "W&B Inference language model"
 
@@ -31,12 +31,13 @@ class WandbLanguageModel:
         self.model = settings.wandb_model
 
     async def complete(self, system: str, user: str) -> LlmReply:
-        headers = bearer(self._s.wandb_api_key)
+        headers = {}
         if self._s.wandb_project:
             headers["OpenAI-Project"] = self._s.wandb_project
-        data = await post_json(
+        response = await post(
             NAME,
             self._s.wandb_base_url.rstrip("/") + "/chat/completions",
+            self._s.wandb_api_key,
             {
                 "model": self.model,
                 "messages": [
@@ -45,10 +46,10 @@ class WandbLanguageModel:
                 ],
                 "temperature": 0.2,
             },
-            headers,
+            ChatResponse,
             self._s.service_timeout_s,
+            headers,
         )
-        response = parse(NAME, ChatResponse, data, __file__)
         if not response.choices:
             raise ServiceError(NAME, "bad_response", "response contained no choices")
         return LlmReply(text=response.choices[0].message.content, model=self.model, source="live")

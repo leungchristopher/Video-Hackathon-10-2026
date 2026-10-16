@@ -25,37 +25,28 @@ class Services:
     llm: LanguageModel
 
     def info(self) -> list[ServiceInfo]:
+        pairs = [
+            ("video_search", self.search),
+            ("clip_retrieval", self.clips),
+            ("object_detection", self.detector),
+            ("clip_analysis", self.analyzer),
+            ("language_model", self.llm),
+        ]
         return [
-            ServiceInfo(
-                interface="video_search", provider=self.search.name, mode=self.search.source
-            ),
-            ServiceInfo(
-                interface="clip_retrieval", provider=self.clips.name, mode=self.clips.source
-            ),
-            ServiceInfo(
-                interface="object_detection",
-                provider=self.detector.name,
-                mode=self.detector.source,
-            ),
-            ServiceInfo(
-                interface="clip_analysis", provider=self.analyzer.name, mode=self.analyzer.source
-            ),
-            ServiceInfo(interface="language_model", provider=self.llm.name, mode=self.llm.source),
+            ServiceInfo(interface=interface, provider=service.name, mode=service.source)
+            for interface, service in pairs
         ]
 
 
-def build_services(settings: Settings, media_url: str) -> Services:
-    """Use a live adapter when its service is configured, otherwise the test response."""
-    delay = settings.test_response_delay_s
-    vss = bool(settings.vss_base_url)
+def build_services(settings: Settings) -> Services:
     return Services(
-        search=VssVideoSearch(settings) if vss else TestVideoSearch(delay),
-        clips=VssClipRetriever(settings) if vss else TestClipRetriever(media_url, delay),
-        detector=(
-            YoloObjectDetector(settings) if settings.yolo_base_url else TestObjectDetector(delay)
+        search=VssVideoSearch(settings) if settings.vss_search_url else TestVideoSearch(),
+        clips=(
+            VssClipRetriever(settings)
+            if settings.vss_clip_url
+            else TestClipRetriever(settings.video_url)
         ),
-        analyzer=(
-            CosmosClipAnalyzer(settings) if settings.cosmos_base_url else TestClipAnalyzer(delay)
-        ),
-        llm=WandbLanguageModel(settings) if settings.wandb_api_key else TestLanguageModel(delay),
+        detector=YoloObjectDetector(settings) if settings.yolo_url else TestObjectDetector(),
+        analyzer=CosmosClipAnalyzer(settings) if settings.cosmos_url else TestClipAnalyzer(),
+        llm=WandbLanguageModel(settings) if settings.wandb_api_key else TestLanguageModel(),
     )

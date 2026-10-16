@@ -1,78 +1,51 @@
-# Video-Hackathon-10-2026
+# Video analysis harness
 
-Minimal video question-answering app. Ask a question about a video; a background job
-searches the video, retrieves and analyses matching clips, and asks a language model for an
-answer. Evidence cards show each moment; click a timestamp to move playback there.
+A minimal React/Vite/TypeScript and FastAPI/Pydantic app that links VSS search and clip
+retrieval, YOLO object detection, Cosmos clip analysis, and W&B Inference. No models are
+installed locally. Unconfigured services return clearly labelled test responses.
 
-- Frontend: React, Vite, TypeScript (`frontend/`)
-- Backend: Python, FastAPI, Pydantic (`backend/`)
-- External services (called over HTTP, nothing is installed locally):
-  VAST/VSS (video search, clip retrieval), YOLO (object detection), Cosmos (clip analysis),
-  W&B Inference (language model)
+## Run
 
-The app runs without credentials. Any unconfigured service returns canned **test responses**,
-marked `source: "test"` in the API and with a yellow `TEST RESPONSE` badge and banner in the UI.
-
-## Setup
-
-Requires Python 3.10+, Node 22+ (see `.nvmrc`) and `make`.
+Requires Python 3.10+, Node 22+ and `make`.
 
 ```sh
-make setup   # backend venv, npm ci, .env from .env.example, demo video (needs ffmpeg)
-make dev     # backend on :8000, frontend on http://127.0.0.1:5173 (proxies /api)
-make check   # ruff, pytest (full flow + service failure + timeout), tsc + vite build
+make setup   # install pinned backend/frontend dependencies; create .env
+make dev     # backend on :8000, frontend on http://127.0.0.1:5173
+make check   # ruff, pytest, TypeScript and Vite build
 ```
 
-## How it works
+## Flow
 
-```
+```text
 POST /api/jobs {video_id, question}
-  -> video search (VAST/VSS)          hits with start_s/end_s
-  -> clip retrieval (VAST/VSS)        per hit
-  -> object detection (YOLO)          per clip, cached in SQLite
-  -> clip analysis (Cosmos)           per clip, cached in SQLite
-  -> language model (W&B Inference)   answer citing [12.0s]-style timestamps
-GET /api/jobs/{id}                    status: queued | running | succeeded | failed
+  -> VSS search -> VSS clip retrieval
+  -> YOLO detection + Cosmos analysis (cached)
+  -> W&B answer with clickable citations
+GET /api/jobs/{id}
+GET /api/config
 ```
 
-- All timestamps are seconds from the start of the source video (`start_s`, `end_s`).
-- Jobs run in-process with at most `MAX_CONCURRENT_JOBS` at once; extra jobs stay `queued`.
-  Each job is limited to `JOB_TIMEOUT_S`, each service call to `SERVICE_TIMEOUT_S`.
-- A failed job reports `error: {service, kind, message}` where `kind` is one of
-  `timeout`, `unavailable`, `http_error`, `bad_response`, `internal`.
-- Clip analyses and detections are cached in SQLite (`CACHE_PATH`) by video, interval, model
-  and prompt/config version. Change `CLIP_PROMPT_VERSION` in `backend/app/prompts.py` when
-  editing the analysis prompt; `DETECTION_CONFIG_VERSION` is also part of the cache key.
-- Other endpoints: `GET /api/health` (which services are live or test), `GET /api/videos`.
+- Every timestamp is seconds from the start of the source video.
+- Jobs run in-process with `MAX_CONCURRENT_JOBS`; job and service calls have separate timeouts.
+- Errors are `{service, kind, message}` with kinds `timeout`, `unavailable`, `http_error`,
+  `bad_response`, or `internal`.
+- Analyses and detections are cached in SQLite (`CACHE_PATH`) by kind, video, interval, model,
+  and prompt/config version.
+- `VIDEO_ID` and `VIDEO_URL` select the video and its source URL.
 
-Interfaces are in `backend/app/services/base.py`; test responses in
-`backend/app/services/test_responses.py`.
+## Services
 
-## Connecting services
+Set service URLs and credentials in the backend `.env`; never send credentials to the browser.
+Each adapter owns a placeholder contract to edit when the real API is known. Empty service
+URLs or keys use test responses (`source: "test"`, `[TEST RESPONSE]` text, TEST badge).
 
-Credentials stay in `.env` on the backend (ignored by Git) and are never sent to the browser.
-Restart `make dev` after editing `.env`; `GET /api/health` shows which services are live.
+| Service | Enable with | Placeholder contract |
+|---|---|---|
+| VSS search | `VSS_SEARCH_URL`, `VSS_API_KEY` | `POST VSS_SEARCH_URL {video_id, query, top_k}` → `{results: [{start_s, end_s, score, text}]}` |
+| VSS clip retrieval | `VSS_CLIP_URL`, `VSS_API_KEY` | `POST VSS_CLIP_URL {video_id, start_s, end_s}` → `{url}` |
+| YOLO | `YOLO_URL`, `YOLO_API_KEY`, `YOLO_MODEL` | `POST YOLO_URL {model, video_id, clip_url, start_s, end_s}` → `{detections: [{label, confidence, time_s, box}]}` |
+| Cosmos | `COSMOS_URL`, `COSMOS_API_KEY`, `COSMOS_MODEL` | `POST COSMOS_URL {model, prompt, video_id, clip_url, start_s, end_s}` → `{text}` |
+| W&B Inference | `WANDB_API_KEY`, `WANDB_PROJECT`, `WANDB_MODEL` | OpenAI-compatible chat completions |
 
-The event API formats are not known, so the VAST/VSS, YOLO and Cosmos adapters use a placeholder
-contract defined in one file each. When the real API is documented, edit the request payload and
-the `*Response` models in that file and convert any timestamps to source-video seconds there.
-A response that does not match fails the job with a `bad_response` error naming the file. YOLO
-boxes are normalized `x1, y1, x2, y2` coordinates from 0 to 1.
-
-| Service | Enable with | Adapter | Placeholder contract |
-|---|---|---|---|
-| VAST/VSS search | `VSS_BASE_URL`, `VSS_API_KEY` | `backend/app/services/vss.py` | `POST {VSS_SEARCH_PATH}` `{video_id, query, top_k}` → `{results: [{start_s, end_s, score, text}]}` |
-| VAST/VSS clips | same | same | `POST {VSS_CLIP_PATH}` `{video_id, start_s, end_s}` → `{url}` |
-| YOLO | `YOLO_BASE_URL`, `YOLO_API_KEY`, `YOLO_MODEL` | `backend/app/services/yolo.py` | `POST {YOLO_DETECT_PATH}` `{model, video_id, clip_url, start_s, end_s}` → `{detections: [{label, confidence, time_s, box}]}` |
-| Cosmos | `COSMOS_BASE_URL`, `COSMOS_API_KEY`, `COSMOS_MODEL` | `backend/app/services/cosmos.py` | `POST {COSMOS_ANALYZE_PATH}` `{model, prompt, video_id, clip_url, start_s, end_s}` → `{text}` |
-| W&B Inference | `WANDB_API_KEY`, `WANDB_PROJECT`, `WANDB_MODEL` | `backend/app/services/wandb.py` | OpenAI-compatible `POST {WANDB_BASE_URL}/chat/completions` |
-
-API keys are sent as `Authorization: Bearer <key>`. For W&B, `WANDB_PROJECT` is your
-`entity/project`, sent as the `OpenAI-Project` header.
-
-The demo video `data/demo.mp4` is an ffmpeg test pattern whose on-screen counter shows the
-source-video time, so you can check that clicking a timestamp seeks correctly. Without ffmpeg,
-`make setup` skips it.
-
-To use your own video, set `VIDEO_URL` to an http(s) URL or a local file path (served by the
-backend) and `VIDEO_ID` to the identifier the search service uses for it.
+YOLO `box` values are normalized `x1, y1, x2, y2` coordinates from 0 to 1. W&B uses
+`WANDB_BASE_URL` and sends `WANDB_PROJECT` as the `OpenAI-Project` header.

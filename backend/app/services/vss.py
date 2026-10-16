@@ -1,15 +1,10 @@
-"""VAST/VSS adapter for video search and clip retrieval.
-
-The event API format is not known. The request and response shapes below are this
-repository's own adapter contract; edit `*Request`/`*Response` and the mapping in this
-file once the real API is documented. Convert any timestamps to source-video seconds here.
-"""
+"""VAST/VSS API is unknown; edit this placeholder contract when it is documented."""
 
 from pydantic import BaseModel
 
 from ..config import Settings
 from ..models import Clip, Interval, SearchHit
-from .http import bearer, parse, post_json
+from .http import post
 
 SEARCH = "VAST/VSS video search"
 CLIPS = "VAST/VSS clip retrieval"
@@ -38,14 +33,14 @@ class VssVideoSearch:
         self._s = settings
 
     async def search(self, video_id: str, query: str, top_k: int) -> list[SearchHit]:
-        data = await post_json(
+        response = await post(
             SEARCH,
-            self._s.vss_base_url.rstrip("/") + self._s.vss_search_path,
+            self._s.vss_search_url,
+            self._s.vss_api_key,
             {"video_id": video_id, "query": query, "top_k": top_k},
-            bearer(self._s.vss_api_key),
+            SearchResponse,
             self._s.service_timeout_s,
         )
-        response = parse(SEARCH, SearchResponse, data, __file__)
         return [
             SearchHit(video_id=video_id, source="live", **r.model_dump())
             for r in response.results[:top_k]
@@ -60,12 +55,12 @@ class VssClipRetriever:
         self._s = settings
 
     async def get_clip(self, interval: Interval) -> Clip:
-        data = await post_json(
+        response = await post(
             CLIPS,
-            self._s.vss_base_url.rstrip("/") + self._s.vss_clip_path,
+            self._s.vss_clip_url,
+            self._s.vss_api_key,
             interval.model_dump(),
-            bearer(self._s.vss_api_key),
+            ClipResponse,
             self._s.service_timeout_s,
         )
-        response = parse(CLIPS, ClipResponse, data, __file__)
         return Clip(**interval.model_dump(), url=response.url, source="live")

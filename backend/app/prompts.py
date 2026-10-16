@@ -1,3 +1,5 @@
+from .models import EvidenceCard
+
 # Bump a version whenever its prompt text changes: it is part of the cache key.
 CLIP_PROMPT_VERSION = "clip-analysis-v1"
 CLIP_PROMPT = (
@@ -16,9 +18,16 @@ ANSWER_SYSTEM = (
 )
 
 
-def answer_prompt(question: str, evidence: list[tuple[float, float, str, str]]) -> str:
+def answer_prompt(question: str, evidence: list[EvidenceCard]) -> str:
     lines = [
-        f"[{start:.1f}s-{end:.1f}s] {text} Objects: {objects}"
-        for start, end, text, objects in evidence
+        f"[{card.start_s:.1f}s-{card.end_s:.1f}s] {card.analysis.text} Objects: "
+        + (
+            ", ".join(
+                f"{d.label} ({d.confidence:.2f} @ {d.time_s:.1f}s)"
+                for d in card.detections.detections
+            )
+            or "none"
+        )
+        for card in evidence
     ]
     return f"Question: {question}\n\nEvidence:\n" + "\n".join(lines)

@@ -3,7 +3,7 @@ import threading
 from pathlib import Path
 from typing import TypeVar
 
-from .models import ClipAnalysis, ClipDetections
+from .models import ClipAnalysis, ClipDetections, Interval
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS results (
@@ -34,37 +34,35 @@ class ResultCache:
             self._db.execute(SCHEMA)
 
     @staticmethod
-    def _key(video_id: str, start_s: float, end_s: float, model: str, prompt_version: str):
-        return (video_id, round(start_s, 3), round(end_s, 3), model, prompt_version)
+    def _key(interval: Interval, model: str, version: str) -> tuple[str, float, float, str, str]:
+        return (
+            interval.video_id,
+            round(interval.start_s, 3),
+            round(interval.end_s, 3),
+            model,
+            version,
+        )
 
     def get(
         self,
         kind: str,
         cls: type[T],
-        video_id: str,
-        start_s: float,
-        end_s: float,
+        interval: Interval,
         model: str,
-        prompt_version: str,
+        version: str,
     ) -> T | None:
         with self._lock:
             row = self._db.execute(
                 "SELECT result FROM results WHERE kind=? AND video_id=? AND start_s=? AND end_s=?"
                 " AND model=? AND prompt_version=?",
-                (kind, *self._key(video_id, start_s, end_s, model, prompt_version)),
+                (kind, *self._key(interval, model, version)),
             ).fetchone()
         if row is None:
             return None
         return cls.model_validate_json(row[0]).model_copy(update={"cached": True})
 
     def put(self, kind: str, item: ClipAnalysis | ClipDetections) -> None:
-        key = self._key(
-            item.video_id,
-            item.start_s,
-            item.end_s,
-            item.model,
-            item.prompt_version,
-        )
+        key = self._key(item, item.model, item.prompt_version)
         with self._lock, self._db:
             self._db.execute(
                 "INSERT OR REPLACE INTO results"
