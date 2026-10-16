@@ -17,7 +17,7 @@ marked `source: "test"` in the API and with a yellow `TEST RESPONSE` badge and b
 Requires Python 3.10+, Node 22+ (see `.nvmrc`) and `make`.
 
 ```sh
-make setup   # backend venv, npm ci, creates .env from .env.example
+make setup   # backend venv, npm ci, .env from .env.example, demo video (needs ffmpeg)
 make dev     # backend on :8000, frontend on http://127.0.0.1:5173 (proxies /api)
 make check   # ruff, pytest (full flow + service failure + timeout), tsc + vite build
 ```
@@ -64,6 +64,10 @@ A response that does not match fails the job with a `bad_response` error naming 
 
 API keys are sent as `Authorization: Bearer <key>`. For W&B, `WANDB_PROJECT` is your
 `entity/project`, sent as the `OpenAI-Project` header.
+
+The demo video `data/demo.mp4` is an ffmpeg test pattern whose on-screen counter shows the
+source-video time, so you can check that clicking a timestamp seeks correctly. Without ffmpeg,
+`make setup` skips it.
 
 To use your own video, set `VIDEO_URL` to an http(s) URL or a local file path (served by the
 backend) and `VIDEO_ID` to the identifier the search service uses for it.
